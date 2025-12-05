@@ -335,7 +335,11 @@ def test_stacking_grid_coords(datastore_name, category):
 
 @pytest.mark.parametrize("datastore_name", DATASTORES.keys())
 def test_dataarray_shapes(datastore_name):
+
     datastore = init_datastore_example(datastore_name)
+    if not isinstance(datastore, BaseRegularGridDatastore):
+        pytest.skip("Datastore does not implement `BaseCartesianDatastore`")
+
     static_da = datastore.get_dataarray("static", split=None)
     static_da = datastore.stack_grid_coords(static_da)
     static_da = static_da.isel(static_feature=0)
@@ -375,6 +379,8 @@ def test_dataarray_shapes(datastore_name):
 def test_plot_example_from_datastore(datastore_name):
     """Check that the `plot_example_from_datastore` function is implemented."""
     datastore = init_datastore_example(datastore_name)
+    if not isinstance(datastore, BaseRegularGridDatastore):
+        pytest.skip("Datastore does not implement `BaseCartesianDatastore`")
     fig = plot_example_from_datastore(
         category="static",
         datastore=datastore,

@@ -1,0 +1,97 @@
+schema_version: v0.5.0
+dataset_version: v0.1.0
+
+output:
+  variables:
+    static: [grid_index, static_feature]
+    state: [time, grid_index, state_feature]
+    forcing: [time, grid_index, forcing_feature]
+  coord_ranges:
+    time:
+      start: 2025-01-01T00:00
+      end: 2025-01-02T21:00
+      step: PT3H
+  chunking:
+    time: 1
+  splitting:
+    dim: time
+    splits:
+      train:
+        start: 2025-01-01T00:00
+        end: 2025-01-02T12:00
+        compute_statistics:
+          ops: [mean, std, diff_mean, diff_std]
+          dims: [grid_index, time]
+      val:
+        start: 2025-01-02T12:00
+        end: 2025-01-02T18:00
+      test:
+        start: 2025-01-01T18:00
+        end: 2025-01-02T21:00
+
+inputs:
+  state_fields:
+    path: tests/datastore_examples/mike/f3-ukns_dataset_test.zarr
+    dims: [time, element]
+    variables:
+      - Surface elevation
+      - U velocity
+      - V velocity
+    dim_mapping:
+      time:
+        method: rename
+        dim: time
+      state_feature:
+        method: stack_variables_by_var_name
+        name_format: "{var_name}"
+      grid_index:
+        method: rename
+        dim: element
+    target_output_variable: state
+
+  forcing_fields:
+    path: tests/datastore_examples/mike/f3-ukns_dataset_test.zarr
+    dims: [time, element]
+    variables:
+      - U10
+      - V10
+      - Pressure
+    dim_mapping:
+      time:
+        method: rename
+        dim: time
+      forcing_feature:
+        method: stack_variables_by_var_name
+        name_format: "{var_name}"
+      grid_index:
+        method: rename
+        dim: element
+    target_output_variable: forcing
+
+  static_fields:
+    path: tests/datastore_examples/mike/f3-ukns_dataset_test.zarr
+    dims: [element]
+    variables:
+      - Bathymetry
+    dim_mapping:
+      static_feature:
+        method: stack_variables_by_var_name
+        name_format: "{var_name}"
+      grid_index:
+        method: rename
+        dim: element
+    target_output_variable: static
+    
+extra:
+  projection:
+    class_name: PlateCarree
+    kwargs:
+      central_longitude: 0.0
+      central_latitude: 0.0
+      globe:
+        semimajor_axis: 6378137.0
+        semiminor_axis: 6378137.0
+  boundary:
+    method: polygon
+    kwargs:
+      polygon_path: tests/datastore_examples/mike/f3-ukns_boundary.gpkg

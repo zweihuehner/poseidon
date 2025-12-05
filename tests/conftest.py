@@ -91,6 +91,11 @@ DATASTORES_EXAMPLES = dict(
         / "danra.datastore.yaml"
     ),
     npyfilesmeps=download_meps_example_reduced_dataset(),
+    mike=(
+        DATASTORE_EXAMPLES_ROOT_PATH
+        / "mike"
+        / "f3-ukns.datastore_test.yaml"
+    ),
     dummydata=None,
 )
 

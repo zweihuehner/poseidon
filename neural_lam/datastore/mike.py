@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import List, Optional, Union
 import mikeio
 import warnings
+import geopandas as gpd
 
-from shapely import Polygon, MultiPolygon, Point
+from shapely import Point
 
 # Third-party
 import cartopy.crs as ccrs
@@ -21,8 +22,9 @@ from loguru import logger
 
 import mllam_data_prep as mdp
 from ..utils import rank_zero_print
+from ..datastore.base import BaseDatastore
 
-class MIKEDatastore(abc.ABC):
+class MIKEDatastore(BaseDatastore):
     """
     Base class for weather data used in the neural-lam package. A datastore
     defines the interface for accessing weather data by providing methods to
@@ -62,7 +64,7 @@ class MIKEDatastore(abc.ABC):
 
     SHORT_NAME = "mike"
 
-    def __init__(self, config_path: Path, boundary: list[Polygon | MultiPolygon], boundary_no: int, reuse_existing: bool = False):
+    def __init__(self, config_path: Path, reuse_existing: bool = True):
 
         self._config_path = Path(config_path)
         self._config = mdp.Config.from_yaml_file(self._config_path)
@@ -106,9 +108,6 @@ class MIKEDatastore(abc.ABC):
             da_split_start = da_split.sel(split_part="start").load().item()
             da_split_end = da_split.sel(split_part="end").load().item()
             rank_zero_print(f" {split:<8s}: {da_split_start} to {da_split_end}")
-
-        self.boundary_polygon = boundary
-        self.boundary_no = boundary_no
 
     @property
     def root_path(self) -> Path:
@@ -159,7 +158,7 @@ class MIKEDatastore(abc.ABC):
             The number of grid points in the dataset.
 
         """
-        return len(len(self._ds.grid_index))
+        return len(self._ds.grid_index)
 
     def get_vars_units(self, category: str) -> List[str]:
         """Get the units of the variables in the given category.
@@ -405,12 +404,18 @@ class MIKEDatastore(abc.ABC):
             The boundary mask for the dataset, with dimension ('grid_index',).
         """
         
-        boundary_polygon = self.boundary_polygon[self.boundary_no]
+        polygon_config = self._config.extra["boundary"]
 
-        xy = self.get_xy( category="state", stacked=True)
-
-        mask = np.array([boundary_polygon.contains(Point(x, y)) for x, y in xy], dtype=bool)
-
+        if polygon_config["method"] == "polygon":
+            path = polygon_config["kwargs"]["polygon_path"]
+            boundary_polygon = gpd.read_file(path).geometry.iloc[0]
+            xy = self.get_xy( category="state", stacked=True)
+            mask = np.array(
+                [boundary_polygon.contains(Point(x, y)) for x, y in xy],
+                dtype=int)
+        else:
+            raise ValueError(f"Boundary method {polygon_config["method"]} not implememted")
+        
         return xr.DataArray(
             data=mask,
             dims=("grid_index",),
