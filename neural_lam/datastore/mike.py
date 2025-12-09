@@ -414,7 +414,7 @@ class MIKEDatastore(BaseDatastore):
                 [boundary_polygon.contains(Point(x, y)) for x, y in xy],
                 dtype=int)
         else:
-            raise ValueError(f"Boundary method {polygon_config["method"]} not implememted")
+            raise ValueError(f"Boundary method {polygon_config['method']} not implememted")
         
         return xr.DataArray(
             data=mask,
