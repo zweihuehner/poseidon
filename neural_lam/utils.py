@@ -97,9 +97,7 @@ def load_graph(graph_dir_path, device="cpu"):
         )
 
     # Load edges (edge_index)
-    m2m_edge_index = BufferList(
-        loads_file("m2m_edge_index.pt"), persistent=False
-    )  # List of (2, M_m2m[l])
+    m2m_edge_index = BufferList(loads_file("m2m_edge_index.pt"), persistent=False)  # List of (2, M_m2m[l])
     g2m_edge_index = loads_file("g2m_edge_index.pt")  # (2, M_g2m)
     m2g_edge_index = loads_file("m2g_edge_index.pt")  # (2, M_m2g)
 
@@ -113,9 +111,8 @@ def load_graph(graph_dir_path, device="cpu"):
     m2g_features = loads_file("m2g_features.pt")  # (M_m2g, d_edge_f)
 
     # Normalize by dividing with longest edge (found in m2m)
-    longest_edge = max(
-        torch.max(level_features[:, 0]) for level_features in m2m_features
-    )  # Col. 0 is length
+    # m2m_features = [m2m_features]
+    longest_edge = max(torch.max(level_features[:, 0]) for level_features in m2m_features)  # Col. 0 is length
     m2m_features = BufferList(
         [level_features / longest_edge for level_features in m2m_features],
         persistent=False,
@@ -124,53 +121,33 @@ def load_graph(graph_dir_path, device="cpu"):
     m2g_features = m2g_features / longest_edge
 
     # Load static node features
-    mesh_static_features = loads_file(
-        "mesh_features.pt"
-    )  # List of (N_mesh[l], d_mesh_static)
+    mesh_static_features = loads_file("mesh_features.pt")  # List of (N_mesh[l], d_mesh_static)
 
     # Some checks for consistency
-    assert (
-        len(m2m_features) == n_levels
-    ), "Inconsistent number of levels in mesh"
-    assert (
-        len(mesh_static_features) == n_levels
-    ), "Inconsistent number of levels in mesh"
+    assert len(m2m_features) == n_levels, "Inconsistent number of levels in mesh"
+    assert len(mesh_static_features) == n_levels, "Inconsistent number of levels in mesh"
 
     if hierarchical:
         # Load up and down edges and features
-        mesh_up_edge_index = BufferList(
-            loads_file("mesh_up_edge_index.pt"), persistent=False
-        )  # List of (2, M_up[l])
+        mesh_up_edge_index = BufferList(loads_file("mesh_up_edge_index.pt"), persistent=False)  # List of (2, M_up[l])
         mesh_down_edge_index = BufferList(
             loads_file("mesh_down_edge_index.pt"), persistent=False
         )  # List of (2, M_down[l])
 
-        mesh_up_features = loads_file(
-            "mesh_up_features.pt"
-        )  # List of (M_up[l], d_edge_f)
-        mesh_down_features = loads_file(
-            "mesh_down_features.pt"
-        )  # List of (M_down[l], d_edge_f)
+        mesh_up_features = loads_file("mesh_up_features.pt")  # List of (M_up[l], d_edge_f)
+        mesh_down_features = loads_file("mesh_down_features.pt")  # List of (M_down[l], d_edge_f)
 
         # Rescale
         mesh_up_features = BufferList(
-            [
-                edge_features / longest_edge
-                for edge_features in mesh_up_features
-            ],
+            [edge_features / longest_edge for edge_features in mesh_up_features],
             persistent=False,
         )
         mesh_down_features = BufferList(
-            [
-                edge_features / longest_edge
-                for edge_features in mesh_down_features
-            ],
+            [edge_features / longest_edge for edge_features in mesh_down_features],
             persistent=False,
         )
 
-        mesh_static_features = BufferList(
-            mesh_static_features, persistent=False
-        )
+        mesh_static_features = BufferList(mesh_static_features, persistent=False)
     else:
         # Extract single mesh level
         m2m_edge_index = m2m_edge_index[0]
@@ -238,11 +215,7 @@ def has_working_latex():
         return False
     if not shutil.which("dvipng"):
         return False
-    if not (
-        shutil.which("gs")
-        or shutil.which("gswin64c")
-        or shutil.which("gswin32c")
-    ):
+    if not (shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")):
         return False
 
     tex_src = r"""
@@ -359,17 +332,13 @@ def setup_training_logger(datastore, args, run_name):
     elif args.logger == "mlflow":
         url = os.getenv("MLFLOW_TRACKING_URI")
         if url is None:
-            raise ValueError(
-                "MLFlow logger requires setting MLFLOW_TRACKING_URI in env."
-            )
+            raise ValueError("MLFlow logger requires setting MLFLOW_TRACKING_URI in env.")
         logger = CustomMLFlowLogger(
             experiment_name=args.logger_project,
             tracking_uri=url,
             run_name=run_name,
         )
-        logger.log_hyperparams(
-            dict(training=vars(args), datastore=datastore._config)
-        )
+        logger.log_hyperparams(dict(training=vars(args), datastore=datastore._config))
 
     return logger
 
@@ -384,9 +353,7 @@ def inverse_softplus(x, beta=1, threshold=20):
     Note that this torch.clamp will make gradients 0, but this is not a
     problem as values of x that are this close to 0 have gradients of 0 anyhow.
     """
-    x_clamped = torch.clamp(
-        x, min=torch.log(torch.tensor(1e-6 + 1)) / beta, max=threshold / beta
-    )
+    x_clamped = torch.clamp(x, min=torch.log(torch.tensor(1e-6 + 1)) / beta, max=threshold / beta)
 
     non_linear_part = torch.log(torch.expm1(x_clamped * beta)) / beta
 
