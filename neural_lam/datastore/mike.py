@@ -64,10 +64,14 @@ class MIKEDatastore(BaseDatastore):
 
     SHORT_NAME = "mike"
 
-    def __init__(self, config_path: Path, reuse_existing: bool = True):
+    def __init__(self, config_path: Path, reuse_existing: bool = True, preload_to_memory: bool = False):
 
         self._config_path = Path(config_path)
         self._config = mdp.Config.from_yaml_file(self._config_path)
+        
+        # Check for preload_to_memory in extra section
+        preload_to_memory = self._config.extra.get('preload_to_memory', preload_to_memory)
+        
         fp_ds = self._config_path.parent / self._config_path.name.replace(
             ".yaml", ".zarr"
         )
@@ -86,6 +90,12 @@ class MIKEDatastore(BaseDatastore):
         if self._ds is None:
             self._ds = mdp.create_dataset(config=self._config)
             self._ds.to_zarr(fp_ds)
+
+        # Pre-load entire dataset into memory to eliminate disk I/O during training for small datasets
+        if preload_to_memory:
+            rank_zero_print("Pre-loading dataset into memory...")
+            self._ds = self._ds.load()
+            rank_zero_print("Dataset loaded into memory.")
 
         rank_zero_print("The loaded datastore contains the following features:")
         for category in ["state", "forcing", "static"]:
