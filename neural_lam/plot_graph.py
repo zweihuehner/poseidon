@@ -29,7 +29,7 @@ def main():
         help="Path for the datastore config",
     )
     parser.add_argument(
-        "--graph",
+        "--graph_name",
         type=str,
         default="multiscale",
         help="Graph to plot",
@@ -55,7 +55,7 @@ def main():
     grid_pos = xy / pos_max  # Divide by maximum coordinate
 
     # Load graph data
-    graph_dir_path = os.path.join(datastore.root_path, "graph", args.graph)
+    graph_dir_path = os.path.join(datastore.root_path, "graphs", args.graph_name)
     hierarchical, graph_ldict = utils.load_graph(graph_dir_path=graph_dir_path)
     (g2m_edge_index, m2g_edge_index, m2m_edge_index,) = (
         graph_ldict["g2m_edge_index"],
