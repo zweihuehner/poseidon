@@ -26,7 +26,7 @@ class BaseGraphModel(ARModel):
         for name, attr_value in graph_ldict.items():
             # exactly the same way as grid node position static features.
             if name == "mesh_static_features":
-                max_coord = datastore.get_xy("state").max()
+                max_coord = datastore.get_xy("state", stacked = True).max()
                 # Rescale by dividing by maximum coordinate in interior
                 attr_value /= max_coord
 
