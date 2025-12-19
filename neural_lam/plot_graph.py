@@ -23,7 +23,7 @@ def main():
         formatter_class=ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--datastore_config_path",
+        "--config_path",
         type=str,
         default="tests/datastore_examples/mdp/config.yaml",
         help="Path for the datastore config",
@@ -46,9 +46,7 @@ def main():
     )
 
     args = parser.parse_args()
-    _, datastore = load_config_and_datastore(
-        config_path=args.datastore_config_path
-    )
+    _, datastore = load_config_and_datastore(config_path=args.config_path)
 
     xy = datastore.get_xy("state", stacked=True)  # (N_grid, 2)
     pos_max = np.max(np.abs(xy))
@@ -56,8 +54,12 @@ def main():
 
     # Load graph data
     graph_dir_path = os.path.join(datastore.root_path, "graphs", args.graph_name)
-    hierarchical, graph_ldict = utils.load_graph(graph_dir_path=graph_dir_path)
-    (g2m_edge_index, m2g_edge_index, m2m_edge_index,) = (
+    hierarchical, graph_ldict = utils.load_graph(graph_dir_path=graph_dir_path, datastore=datastore)
+    (
+        g2m_edge_index,
+        m2g_edge_index,
+        m2m_edge_index,
+    ) = (
         graph_ldict["g2m_edge_index"],
         graph_ldict["m2g_edge_index"],
         graph_ldict["m2m_edge_index"],
@@ -70,9 +72,7 @@ def main():
 
     # Add in z-dimension
     z_grid = GRID_HEIGHT * np.ones((grid_pos.shape[0],))
-    grid_pos = np.concatenate(
-        (grid_pos, np.expand_dims(z_grid, axis=1)), axis=1
-    )
+    grid_pos = np.concatenate((grid_pos, np.expand_dims(z_grid, axis=1)), axis=1)
 
     # List of edges to plot, (edge_index, color, line_width, label)
     edge_plot_list = [
@@ -86,29 +86,21 @@ def main():
             np.concatenate(
                 (
                     level_static_features.numpy(),
-                    MESH_HEIGHT
-                    + MESH_LEVEL_DIST
-                    * height_level
-                    * np.ones((level_static_features.shape[0], 1)),
+                    MESH_HEIGHT + MESH_LEVEL_DIST * height_level * np.ones((level_static_features.shape[0], 1)),
                 ),
                 axis=1,
             )
-            for height_level, level_static_features in enumerate(
-                mesh_static_features, start=1
-            )
+            for height_level, level_static_features in enumerate(mesh_static_features, start=1)
         ]
         mesh_pos = np.concatenate(mesh_level_pos, axis=0)
 
         # Add inter-level mesh edges
         edge_plot_list += [
-            (level_ei.numpy(), "blue", 1, f"M2M Level {level}")
-            for level, level_ei in enumerate(m2m_edge_index)
+            (level_ei.numpy(), "blue", 1, f"M2M Level {level}") for level, level_ei in enumerate(m2m_edge_index)
         ]
 
         # Add intra-level mesh edges
-        up_edges_ei = np.concatenate(
-            [level_up_ei.numpy() for level_up_ei in mesh_up_edge_index], axis=1
-        )
+        up_edges_ei = np.concatenate([level_up_ei.numpy() for level_up_ei in mesh_up_edge_index], axis=1)
         down_edges_ei = np.concatenate(
             [level_down_ei.numpy() for level_down_ei in mesh_down_edge_index],
             axis=1,
@@ -124,9 +116,7 @@ def main():
         z_mesh = MESH_HEIGHT + 0.01 * mesh_degrees
         mesh_node_size = mesh_degrees / 2
 
-        mesh_pos = np.concatenate(
-            (mesh_pos, np.expand_dims(z_mesh, axis=1)), axis=1
-        )
+        mesh_pos = np.concatenate((mesh_pos, np.expand_dims(z_mesh, axis=1)), axis=1)
 
         edge_plot_list.append((m2m_edge_index.numpy(), "blue", 1, "M2M"))
 
@@ -145,15 +135,9 @@ def main():
         edge_end = node_pos[ei[1]]  # (M, 2)
         n_edges = edge_start.shape[0]
 
-        x_edges = np.stack(
-            (edge_start[:, 0], edge_end[:, 0], np.full(n_edges, None)), axis=1
-        ).flatten()
-        y_edges = np.stack(
-            (edge_start[:, 1], edge_end[:, 1], np.full(n_edges, None)), axis=1
-        ).flatten()
-        z_edges = np.stack(
-            (edge_start[:, 2], edge_end[:, 2], np.full(n_edges, None)), axis=1
-        ).flatten()
+        x_edges = np.stack((edge_start[:, 0], edge_end[:, 0], np.full(n_edges, None)), axis=1).flatten()
+        y_edges = np.stack((edge_start[:, 1], edge_end[:, 1], np.full(n_edges, None)), axis=1).flatten()
+        z_edges = np.stack((edge_start[:, 2], edge_end[:, 2], np.full(n_edges, None)), axis=1).flatten()
 
         scatter_obj = go.Scatter3d(
             x=x_edges,
