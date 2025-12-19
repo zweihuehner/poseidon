@@ -6,11 +6,11 @@ import xarray as xr
 
 # Local
 from . import utils
-from .datastore.base import BaseRegularGridDatastore
+from .datastore.base import BaseDatastore
 
 
 @matplotlib.rc_context(utils.fractional_plot_bundle(1))
-def plot_error_map(errors, datastore: BaseRegularGridDatastore, title=None):
+def plot_error_map(errors, datastore: BaseDatastore, title=None):
     """
     Plot a heatmap of errors of different variables at different
     predictions horizons
@@ -66,7 +66,7 @@ def plot_error_map(errors, datastore: BaseRegularGridDatastore, title=None):
 
 @matplotlib.rc_context(utils.fractional_plot_bundle(1))
 def plot_prediction(
-    datastore: BaseRegularGridDatastore,
+    datastore: BaseDatastore,
     da_prediction: xr.DataArray,
     da_target: xr.DataArray,
     title=None,
@@ -88,9 +88,14 @@ def plot_prediction(
     extent = datastore.get_xy_extent("state")
 
     # Set up masking of border region
-    da_mask = datastore.unstack_grid_coords(datastore.boundary_mask)
-    mask_values = np.invert(da_mask.values.astype(bool)).astype(float)
-    pixel_alpha = mask_values.clip(0.7, 1)  # Faded border region
+    if hasattr(datastore, 'unstack_grid_coords'):
+        da_mask = datastore.unstack_grid_coords(datastore.boundary_mask)
+        mask_values = np.invert(da_mask.values.astype(bool)).astype(float)
+        pixel_alpha = mask_values.clip(0.7, 1)  # Faded border region
+    else:
+        # For unstructured, boundary_mask is 1D
+        mask_values = np.invert(datastore.boundary_mask.values.astype(bool)).astype(float)
+        pixel_alpha = mask_values.clip(0.7, 1)
 
     fig, axes = plt.subplots(
         1,
@@ -102,17 +107,30 @@ def plot_prediction(
     # Plot pred and target
     for ax, da in zip(axes, (da_target, da_prediction)):
         ax.coastlines()  # Add coastline outlines
-        da.plot.imshow(
-            ax=ax,
-            origin="lower",
-            x="x",
-            extent=extent,
-            alpha=pixel_alpha.T,
-            vmin=vmin,
-            vmax=vmax,
-            cmap="plasma",
-            transform=datastore.coords_projection,
-        )
+        if hasattr(datastore, 'grid_shape_state'):
+            # Regular grid
+            da.plot.imshow(
+                ax=ax,
+                origin="lower",
+                x="x",
+                extent=extent,
+                alpha=pixel_alpha.T,
+                vmin=vmin,
+                vmax=vmax,
+                cmap="plasma",
+                transform=datastore.coords_projection,
+            )
+        else:
+            # Unstructured grid
+            x = da.x.values
+            y = da.y.values
+            sc = ax.scatter(
+                x, y, c=da.values, s=10, alpha=pixel_alpha, vmin=vmin, vmax=vmax,
+                cmap="plasma", transform=datastore.coords_projection
+            )
+            # Add colorbar
+            cbar = fig.colorbar(sc, ax=ax, aspect=30)
+            cbar.ax.tick_params(labelsize=10)
 
     # Ticks and labels
     axes[0].set_title("Ground Truth", size=15)
@@ -126,7 +144,7 @@ def plot_prediction(
 
 @matplotlib.rc_context(utils.fractional_plot_bundle(1))
 def plot_spatial_error(
-    error, datastore: BaseRegularGridDatastore, title=None, vrange=None
+    error, datastore: BaseDatastore, title=None, vrange=None
 ):
     """
     Plot errors over spatial map
@@ -142,9 +160,13 @@ def plot_spatial_error(
     extent = datastore.get_xy_extent("state")
 
     # Set up masking of border region
-    da_mask = datastore.unstack_grid_coords(datastore.boundary_mask)
-    mask_reshaped = da_mask.values
-    pixel_alpha = mask_reshaped.clip(0.7, 1)  # Faded border region
+    if hasattr(datastore, 'unstack_grid_coords'):
+        da_mask = datastore.unstack_grid_coords(datastore.boundary_mask)
+        mask_reshaped = da_mask.values
+        pixel_alpha = mask_reshaped.clip(0.7, 1)  # Faded border region
+    else:
+        mask_values = datastore.boundary_mask.values
+        pixel_alpha = mask_values.clip(0.7, 1)
 
     fig, ax = plt.subplots(
         figsize=(5, 4.8),
@@ -152,23 +174,34 @@ def plot_spatial_error(
     )
 
     ax.coastlines()  # Add coastline outlines
-    error_grid = (
-        error.reshape(
-            [datastore.grid_shape_state.x, datastore.grid_shape_state.y]
+    if hasattr(datastore, 'grid_shape_state'):
+        # Regular grid
+        error_grid = (
+            error.reshape(
+                [datastore.grid_shape_state.x, datastore.grid_shape_state.y]
+            )
+            .T.cpu()
+            .numpy()
         )
-        .T.cpu()
-        .numpy()
-    )
 
-    im = ax.imshow(
-        error_grid,
-        origin="lower",
-        extent=extent,
-        alpha=pixel_alpha,
-        vmin=vmin,
-        vmax=vmax,
-        cmap="OrRd",
-    )
+        im = ax.imshow(
+            error_grid,
+            origin="lower",
+            extent=extent,
+            alpha=pixel_alpha,
+            vmin=vmin,
+            vmax=vmax,
+            cmap="OrRd",
+        )
+    else:
+        # Unstructured grid
+        x = datastore.get_xy("state", stacked=True)[:, 0]
+        y = datastore.get_xy("state", stacked=True)[:, 1]
+        sc = ax.scatter(
+            x, y, c=error.cpu().numpy(), s=10, alpha=pixel_alpha, vmin=vmin, vmax=vmax,
+            cmap="OrRd", transform=datastore.coords_projection
+        )
+        im = sc  # For colorbar
 
     # Ticks and labels
     cbar = fig.colorbar(im, aspect=30)
