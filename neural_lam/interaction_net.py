@@ -53,9 +53,12 @@ class InteractionNet(pyg.nn.MessagePassing):
             # Default to input dim if not explicitly given
             hidden_dim = input_dim
 
+        # Make both sender and receiver indices of edge_index start at 0
+        # edge_index = edge_index - edge_index.min(dim=1, keepdim=True)[0]
         # Store number of receiver nodes according to edge_index
         self.num_rec = edge_index[1].max() + 1
-        edge_index[0] = edge_index[0] + self.num_rec  # Make sender indices after rec
+        edge_index = torch.stack((edge_index[0] + self.num_rec, edge_index[1]), dim=0) 
+      
         self.register_buffer("edge_index", edge_index, persistent=False)
 
         # Create MLPs
