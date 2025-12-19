@@ -55,8 +55,7 @@ class InteractionNet(pyg.nn.MessagePassing):
 
         # Store number of receiver nodes according to edge_index
         self.num_rec = edge_index[1].max() + 1
-        edge_index = torch.stack((edge_index[0] + self.num_rec, edge_index[1]), dim=0) 
-      
+        edge_index[0] = edge_index[0] + self.num_rec  # Make sender indices after rec
         self.register_buffer("edge_index", edge_index, persistent=False)
 
         # Create MLPs
