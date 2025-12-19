@@ -22,16 +22,21 @@ class BaseGraphModel(ARModel):
         # NOTE: (IMPORTANT!) mesh nodes MUST have the first
         # num_mesh_nodes indices,
         graph_dir_path = datastore.root_path / "graphs" / args.graph_name
-        self.hierarchical, graph_ldict = utils.load_graph(
-            graph_dir_path=graph_dir_path,
-            datastore = datastore
-        )
+        self.hierarchical, graph_ldict = utils.load_graph(graph_dir_path=graph_dir_path, datastore=datastore)
         for name, attr_value in graph_ldict.items():
+            # exactly the same way as grid node position static features.
+            if name == "mesh_static_features":
+                max_coord = datastore.get_xy("state").max()
+                # Rescale by dividing by maximum coordinate in interior
+                attr_value /= max_coord
+
             # Make BufferLists module members and register tensors as buffers
             if isinstance(attr_value, torch.Tensor):
                 self.register_buffer(name, attr_value, persistent=False)
             else:
                 setattr(self, name, attr_value)
+
+                # NOTE: It would be good to rescale mesh node position features in
 
         # Specify dimensions of data
         self.num_mesh_nodes, _ = self.get_num_mesh()
@@ -47,9 +52,7 @@ class BaseGraphModel(ARModel):
         # Define sub-models
         # Feature embedders for grid
         self.mlp_blueprint_end = [args.hidden_dim] * (args.hidden_layers + 1)
-        self.grid_embedder = utils.make_mlp(
-            [self.grid_dim] + self.mlp_blueprint_end
-        )
+        self.grid_embedder = utils.make_mlp([self.grid_dim] + self.mlp_blueprint_end)
         self.g2m_embedder = utils.make_mlp([g2m_dim] + self.mlp_blueprint_end)
         self.m2g_embedder = utils.make_mlp([m2g_dim] + self.mlp_blueprint_end)
 
@@ -61,9 +64,7 @@ class BaseGraphModel(ARModel):
             hidden_layers=args.hidden_layers,
             update_edges=False,
         )
-        self.encoding_grid_mlp = utils.make_mlp(
-            [args.hidden_dim] + self.mlp_blueprint_end
-        )
+        self.encoding_grid_mlp = utils.make_mlp([args.hidden_dim] + self.mlp_blueprint_end)
 
         # decoder
         self.m2g_gnn = InteractionNet(
@@ -75,17 +76,14 @@ class BaseGraphModel(ARModel):
 
         # Output mapping (hidden_dim -> output_dim)
         self.output_map = utils.make_mlp(
-            [args.hidden_dim] * (args.hidden_layers + 1)
-            + [self.grid_output_dim],
+            [args.hidden_dim] * (args.hidden_layers + 1) + [self.grid_output_dim],
             layer_norm=False,
         )  # No layer norm on this one
 
         # Compute indices and define clamping functions
         self.prepare_clamping_params(config, datastore)
 
-    def prepare_clamping_params(
-        self, config: NeuralLAMConfig, datastore: BaseDatastore
-    ):
+    def prepare_clamping_params(self, config: NeuralLAMConfig, datastore: BaseDatastore):
         """
         Prepare parameters for clamping predicted values to valid range
         """
@@ -96,12 +94,8 @@ class BaseGraphModel(ARModel):
         upper_lims = config.training.output_clamping.upper
 
         # Check that limits in config are for valid features
-        unknown_features_lower = set(lower_lims.keys()) - set(
-            state_feature_names
-        )
-        unknown_features_upper = set(upper_lims.keys()) - set(
-            state_feature_names
-        )
+        unknown_features_lower = set(lower_lims.keys()) - set(state_feature_names)
+        unknown_features_upper = set(upper_lims.keys()) - set(state_feature_names)
         if unknown_features_lower or unknown_features_upper:
             raise ValueError(
                 "State feature limits were provided for unknown features: "
@@ -115,8 +109,7 @@ class BaseGraphModel(ARModel):
         softplus_center = 0
 
         normalize_clamping_lim = (
-            lambda x, feature_idx: (x - self.state_mean[feature_idx])
-            / self.state_std[feature_idx]
+            lambda x, feature_idx: (x - self.state_mean[feature_idx]) / self.state_std[feature_idx]
         )
 
         # Check which clamping functions to use for each feature
@@ -138,45 +131,23 @@ class BaseGraphModel(ARModel):
                      lower: {lower_lims[feature]}, larger than\
                      upper: {upper_lims[feature]}'
                 sigmoid_lower_upper_idx.append(feature_idx)
-                sigmoid_lower_lims.append(
-                    normalize_clamping_lim(lower_lims[feature], feature_idx)
-                )
-                sigmoid_upper_lims.append(
-                    normalize_clamping_lim(upper_lims[feature], feature_idx)
-                )
+                sigmoid_lower_lims.append(normalize_clamping_lim(lower_lims[feature], feature_idx))
+                sigmoid_upper_lims.append(normalize_clamping_lim(upper_lims[feature], feature_idx))
             elif feature in lower_lims and feature not in upper_lims:
                 softplus_lower_idx.append(feature_idx)
-                softplus_lower_lims.append(
-                    normalize_clamping_lim(lower_lims[feature], feature_idx)
-                )
+                softplus_lower_lims.append(normalize_clamping_lim(lower_lims[feature], feature_idx))
             elif feature not in lower_lims and feature in upper_lims:
                 softplus_upper_idx.append(feature_idx)
-                softplus_upper_lims.append(
-                    normalize_clamping_lim(upper_lims[feature], feature_idx)
-                )
+                softplus_upper_lims.append(normalize_clamping_lim(upper_lims[feature], feature_idx))
 
-        self.register_buffer(
-            "sigmoid_lower_lims", torch.tensor(sigmoid_lower_lims)
-        )
-        self.register_buffer(
-            "sigmoid_upper_lims", torch.tensor(sigmoid_upper_lims)
-        )
-        self.register_buffer(
-            "softplus_lower_lims", torch.tensor(softplus_lower_lims)
-        )
-        self.register_buffer(
-            "softplus_upper_lims", torch.tensor(softplus_upper_lims)
-        )
+        self.register_buffer("sigmoid_lower_lims", torch.tensor(sigmoid_lower_lims))
+        self.register_buffer("sigmoid_upper_lims", torch.tensor(sigmoid_upper_lims))
+        self.register_buffer("softplus_lower_lims", torch.tensor(softplus_lower_lims))
+        self.register_buffer("softplus_upper_lims", torch.tensor(softplus_upper_lims))
 
-        self.register_buffer(
-            "clamp_lower_upper_idx", torch.tensor(sigmoid_lower_upper_idx)
-        )
-        self.register_buffer(
-            "clamp_lower_idx", torch.tensor(softplus_lower_idx)
-        )
-        self.register_buffer(
-            "clamp_upper_idx", torch.tensor(softplus_upper_idx)
-        )
+        self.register_buffer("clamp_lower_upper_idx", torch.tensor(sigmoid_lower_upper_idx))
+        self.register_buffer("clamp_lower_idx", torch.tensor(softplus_lower_idx))
+        self.register_buffer("clamp_upper_idx", torch.tensor(softplus_upper_idx))
 
         # Define clamping functions
         self.clamp_lower_upper = lambda x: (
@@ -185,37 +156,24 @@ class BaseGraphModel(ARModel):
             * torch.sigmoid(sigmoid_sharpness * (x - sigmoid_center))
         )
         self.clamp_lower = lambda x: (
-            self.softplus_lower_lims
-            + torch.nn.functional.softplus(
-                x - softplus_center, beta=softplus_sharpness
-            )
+            self.softplus_lower_lims + torch.nn.functional.softplus(x - softplus_center, beta=softplus_sharpness)
         )
         self.clamp_upper = lambda x: (
-            self.softplus_upper_lims
-            - torch.nn.functional.softplus(
-                softplus_center - x, beta=softplus_sharpness
-            )
+            self.softplus_upper_lims - torch.nn.functional.softplus(softplus_center - x, beta=softplus_sharpness)
         )
 
         self.inverse_clamp_lower_upper = lambda x: (
             sigmoid_center
             + utils.inverse_sigmoid(
-                (x - self.sigmoid_lower_lims)
-                / (self.sigmoid_upper_lims - self.sigmoid_lower_lims)
+                (x - self.sigmoid_lower_lims) / (self.sigmoid_upper_lims - self.sigmoid_lower_lims)
             )
             / sigmoid_sharpness
         )
         self.inverse_clamp_lower = lambda x: (
-            utils.inverse_softplus(
-                x - self.softplus_lower_lims, beta=softplus_sharpness
-            )
-            + softplus_center
+            utils.inverse_softplus(x - self.softplus_lower_lims, beta=softplus_sharpness) + softplus_center
         )
         self.inverse_clamp_upper = lambda x: (
-            -utils.inverse_softplus(
-                self.softplus_upper_lims - x, beta=softplus_sharpness
-            )
-            + softplus_center
+            -utils.inverse_softplus(self.softplus_upper_lims - x, beta=softplus_sharpness) + softplus_center
         )
 
     def get_clamped_new_state(self, state_delta, prev_state):
@@ -242,8 +200,7 @@ class BaseGraphModel(ARModel):
             idx = self.clamp_lower_upper_idx
 
             new_state[:, :, idx] = self.clamp_lower_upper(
-                self.inverse_clamp_lower_upper(prev_state[:, :, idx])
-                + state_delta[:, :, idx]
+                self.inverse_clamp_lower_upper(prev_state[:, :, idx]) + state_delta[:, :, idx]
             )
 
         # Softplus clamps between ]a,infty[
@@ -251,8 +208,7 @@ class BaseGraphModel(ARModel):
             idx = self.clamp_lower_idx
 
             new_state[:, :, idx] = self.clamp_lower(
-                self.inverse_clamp_lower(prev_state[:, :, idx])
-                + state_delta[:, :, idx]
+                self.inverse_clamp_lower(prev_state[:, :, idx]) + state_delta[:, :, idx]
             )
 
         # Softplus clamps between ]-infty,b[
@@ -260,8 +216,7 @@ class BaseGraphModel(ARModel):
             idx = self.clamp_upper_idx
 
             new_state[:, :, idx] = self.clamp_upper(
-                self.inverse_clamp_upper(prev_state[:, :, idx])
-                + state_delta[:, :, idx]
+                self.inverse_clamp_upper(prev_state[:, :, idx]) + state_delta[:, :, idx]
             )
 
         return new_state
@@ -317,38 +272,26 @@ class BaseGraphModel(ARModel):
         mesh_emb = self.embedd_mesh_nodes()
 
         # Map from grid to mesh
-        mesh_emb_expanded = self.expand_to_batch(
-            mesh_emb, batch_size
-        )  # (B, num_mesh_nodes, d_h)
+        mesh_emb_expanded = self.expand_to_batch(mesh_emb, batch_size)  # (B, num_mesh_nodes, d_h)
         g2m_emb_expanded = self.expand_to_batch(g2m_emb, batch_size)
 
         # This also splits representation into grid and mesh
-        mesh_rep = self.g2m_gnn(
-            grid_emb, mesh_emb_expanded, g2m_emb_expanded
-        )  # (B, num_mesh_nodes, d_h)
+        mesh_rep = self.g2m_gnn(grid_emb, mesh_emb_expanded, g2m_emb_expanded)  # (B, num_mesh_nodes, d_h)
         # Also MLP with residual for grid representation
-        grid_rep = grid_emb + self.encoding_grid_mlp(
-            grid_emb
-        )  # (B, num_grid_nodes, d_h)
+        grid_rep = grid_emb + self.encoding_grid_mlp(grid_emb)  # (B, num_grid_nodes, d_h)
 
         # Run processor step
         mesh_rep = self.process_step(mesh_rep)
 
         # Map back from mesh to grid
         m2g_emb_expanded = self.expand_to_batch(m2g_emb, batch_size)
-        grid_rep = self.m2g_gnn(
-            mesh_rep, grid_rep, m2g_emb_expanded
-        )  # (B, num_grid_nodes, d_h)
+        grid_rep = self.m2g_gnn(mesh_rep, grid_rep, m2g_emb_expanded)  # (B, num_grid_nodes, d_h)
 
         # Map to output dimension, only for grid
-        net_output = self.output_map(
-            grid_rep
-        )  # (B, num_grid_nodes, d_grid_out)
+        net_output = self.output_map(grid_rep)  # (B, num_grid_nodes, d_grid_out)
 
         if self.output_std:
-            pred_delta_mean, pred_std_raw = net_output.chunk(
-                2, dim=-1
-            )  # both (B, num_grid_nodes, d_f)
+            pred_delta_mean, pred_std_raw = net_output.chunk(2, dim=-1)  # both (B, num_grid_nodes, d_f)
             # NOTE: The predicted std. is not scaled in any way here
             # linter for some reason does not think softplus is callable
             # pylint: disable-next=not-callable
