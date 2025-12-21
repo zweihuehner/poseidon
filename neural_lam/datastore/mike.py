@@ -414,18 +414,29 @@ class MIKEDatastore(BaseDatastore):
             The boundary mask for the dataset, with dimension ('grid_index',).
         """
         
-        polygon_config = self._config.extra["boundary"]
+        polygon_config = self._config.extra.get("boundary", None)
 
-        if polygon_config["method"] == "polygon":
+        xy = self.get_xy(category="state", stacked=True)
+        n_points = len(xy)
+
+        if polygon_config is None:
+            # No boundary defined → mask is False everywhere
+            mask = np.zeros(n_points, dtype=int)
+
+        elif polygon_config["method"] == "polygon":
             path = polygon_config["kwargs"]["polygon_path"]
             boundary_polygon = gpd.read_file(path).geometry.iloc[0]
-            xy = self.get_xy( category="state", stacked=True)
+
             mask = np.array(
                 [boundary_polygon.contains(Point(x, y)) for x, y in xy],
-                dtype=int)
+                dtype=int
+            )
+
         else:
-            raise ValueError(f"Boundary method {polygon_config['method']} not implememted")
-        
+            raise ValueError(
+                f"Boundary method {polygon_config['method']} not implemented"
+            )
+
         return xr.DataArray(
             data=mask,
             dims=("grid_index",),
