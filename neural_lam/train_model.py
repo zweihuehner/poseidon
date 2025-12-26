@@ -244,6 +244,15 @@ def main(input_args=None):
                 "Adjust --var_leads_metric_watch."
             )
 
+    eval_only = args.eval is not None and args.load is not None and not args.restore_opt
+    train_and_eval = args.eval is not None and not eval_only
+    train_only = args.eval is None
+
+    logger.info(
+        f"Execution mode | train_only={train_only}, "
+        f"train_and_eval={train_and_eval}, eval_only={eval_only}"
+    )
+
     # Get an (actual) random run id as a unique identifier
     random_run_id = random.randint(0, 9999)
 
@@ -288,12 +297,16 @@ def main(input_args=None):
     ModelClass = MODELS[args.model]
     model = ModelClass(args, config=config, datastore=datastore)
 
-    if args.eval:
-        prefix = f"eval-{args.eval}-"
+    if eval_only:
+        run_mode = f"eval-only-{args.eval}"
+    elif train_and_eval:
+        run_mode = f"train+eval-{args.eval}"
     else:
-        prefix = "train-"
+        run_mode = "train"
+
     run_name = (
-        f"{prefix}{args.model}-{args.processor_layers}x{args.hidden_dim}-"
+        f"{run_mode}-"
+        f"{args.model}-{args.processor_layers}x{args.hidden_dim}-"
         f"{time.strftime('%m_%d_%H')}-{random_run_id:04d}"
     )
 
@@ -301,13 +314,21 @@ def main(input_args=None):
         datastore=datastore, args=args, run_name=run_name
     )
 
+        
+    checkpoint_dir = (
+        f"saved_models/eval_only/{run_name}"
+        if eval_only
+        else f"saved_models/{run_name}"
+    )
+
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        dirpath=f"saved_models/{run_name}",
+        dirpath=checkpoint_dir,
         filename="min_val_loss",
         monitor="val_mean_loss",
         mode="min",
         save_last=True,
     )
+
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         deterministic=True,
@@ -323,18 +344,35 @@ def main(input_args=None):
     )
 
     # Only init once, on rank 0 only
-    if trainer.global_rank == 0:
+    if trainer.global_rank == 0 and not eval_only:
         utils.init_training_logger_metrics(
             training_logger, val_steps=args.val_steps_to_log
-        )  # Do after initializing logger
+        )
+
+    # Resume training only if restore_opt is set
+    ckpt_for_fit = args.load if args.restore_opt else None
+
+    # -----------------------
+    # Train
+    # -----------------------
+    if not eval_only:
+        trainer.fit(
+            model=model,
+            datamodule=data_module,
+            ckpt_path=ckpt_for_fit,
+        )
+
+    # -----------------------
+    # Evaluate
+    # -----------------------
     if args.eval:
+        ckpt_path = args.load if eval_only else "best"
+
         trainer.test(
             model=model,
             datamodule=data_module,
-            ckpt_path=args.load,
+            ckpt_path=ckpt_path,
         )
-    else:
-        trainer.fit(model=model, datamodule=data_module, ckpt_path=args.load)
 
 
 if __name__ == "__main__":
