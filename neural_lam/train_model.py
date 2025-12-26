@@ -170,6 +170,11 @@ def main(input_args=None):
         default=1,
         help="Number of example predictions to plot during evaluation",
     )
+    parser.add_argument(
+        "--save_eval_to_zarr_path",
+        type=str,
+        help="Save evaluation results to zarr dataset at given path ",
+    )
 
     # Logger Settings
     parser.add_argument(

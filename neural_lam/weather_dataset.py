@@ -512,6 +512,7 @@ class WeatherDataset(torch.utils.data.Dataset):
         tensor: torch.Tensor,
         time: Union[datetime.datetime, list[datetime.datetime]],
         category: str,
+        mask: np.ndarray | None = None,
     ):
         """
         Construct a xarray.DataArray from a `pytorch.Tensor` with coordinates
@@ -573,6 +574,8 @@ class WeatherDataset(torch.utils.data.Dataset):
 
         da_datastore_state = getattr(self, f"da_{category}")
         da_grid_index = da_datastore_state.grid_index
+        if mask is not None:
+            da_grid_index = da_grid_index.isel(grid_index=mask)
         da_state_feature = da_datastore_state.state_feature
 
         coords = {
@@ -593,7 +596,10 @@ class WeatherDataset(torch.utils.data.Dataset):
                 grid_coord in da_datastore_state.coords
                 and grid_coord not in da.coords
             ):
-                da.coords[grid_coord] = da_datastore_state[grid_coord]
+                coord = da_datastore_state.coords[grid_coord]
+                if mask is not None:
+                    coord = coord.isel(grid_index=mask)
+                da.coords[grid_coord] = coord
 
         if not add_time_as_dim:
             da.coords["time"] = time
