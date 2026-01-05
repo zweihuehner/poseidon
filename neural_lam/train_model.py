@@ -222,6 +222,13 @@ def main(input_args=None):
         default=1,
         help="Number of future time steps to use as input for forcing data",
     )
+    parser.add_argument(
+        "--eval_init_times",
+        nargs="*",
+        default=[0, 12],
+        help="List of init times (UTC) where validation and evaluation "
+        "forecasts should be started from (default: 0, 12)",
+    )
     args = parser.parse_args(input_args)
     args.var_leads_metrics_watch = {
         int(k): v for k, v in json.loads(args.var_leads_metrics_watch).items()
@@ -272,6 +279,7 @@ def main(input_args=None):
         num_future_forcing_steps=args.num_future_forcing_steps,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
+        eval_init_times = args.eval_init_times,
         eval_split=args.eval or "test",
     )
 

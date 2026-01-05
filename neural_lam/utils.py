@@ -8,6 +8,7 @@ from functools import cache
 from pathlib import Path
 
 # Third-party
+import numpy as np
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.loggers import MLFlowLogger, WandbLogger
@@ -385,6 +386,26 @@ $E=mc^2$ \LaTeX\ ok
     except Exception:
         return False
 
+def get_time_step(times):
+    """Calculate the time step from a time dataarray.
+
+    Parameters
+    ----------
+    times : xr.DataArray
+        The time dataarray to calculate the time step from.
+
+    Returns
+    -------
+    time_step : float
+        The time step in the the datetime-format of the times dataarray.
+    """
+    time_diffs = np.diff(times)
+    if not np.all(time_diffs == time_diffs[0]):
+        raise ValueError(
+            "Inconsistent time steps in data. "
+            f"Found different time steps: {np.unique(time_diffs)}"
+        )
+    return time_diffs[0]
 
 def fractional_plot_bundle(fraction):
     """

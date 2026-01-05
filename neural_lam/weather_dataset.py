@@ -8,6 +8,7 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import xarray as xr
+from neural_lam.utils import get_time_step
 
 # First-party
 from neural_lam.datastore.base import BaseDatastore
@@ -114,6 +115,12 @@ class WeatherDataset(torch.utils.data.Dataset):
                 )
                 self.da_forcing_mean = self.ds_forcing_stats.forcing_mean
                 self.da_forcing_std = self.ds_forcing_stats.forcing_std
+
+        if self.datastore.is_forecast:
+            state_times = self.da_state.analysis_time
+        else:
+            state_times = self.da_state.time
+        self.orig_time_step_state = get_time_step(state_times)
 
     def __len__(self):
         if self.datastore.is_forecast:
@@ -618,6 +625,7 @@ class WeatherDataModule(pl.LightningDataModule):
         standardize: bool = True,
         num_past_forcing_steps: int = 1,
         num_future_forcing_steps: int = 1,
+        eval_init_times: list = [],
         batch_size: int = 4,
         num_workers: int = 16,
         eval_split: str = "test",
@@ -636,6 +644,7 @@ class WeatherDataModule(pl.LightningDataModule):
         self.test_dataset = None
         self.multiprocessing_context: Union[str, None] = None
         self.eval_split = eval_split
+        self.eval_init_times = eval_init_times
         if num_workers > 0:
             # default to spawn for now, as the default on linux "fork" hangs
             # when using dask (which the npyfilesmeps datastore uses)
@@ -659,6 +668,10 @@ class WeatherDataModule(pl.LightningDataModule):
                 num_past_forcing_steps=self.num_past_forcing_steps,
                 num_future_forcing_steps=self.num_future_forcing_steps,
             )
+            if self.eval_init_times:
+                self.val_dataset = EvalSubsetWrapper(
+                    self.val_dataset, self.eval_init_times
+                )
 
         if stage == "test" or stage is None:
             self.test_dataset = WeatherDataset(
@@ -669,6 +682,12 @@ class WeatherDataModule(pl.LightningDataModule):
                 num_past_forcing_steps=self.num_past_forcing_steps,
                 num_future_forcing_steps=self.num_future_forcing_steps,
             )
+            if self.eval_init_times:
+                self.test_dataset = EvalSubsetWrapper(
+                    self.test_dataset, self.eval_init_times
+                )
+
+
 
     def train_dataloader(self):
         """Load train dataset."""
@@ -702,3 +721,90 @@ class WeatherDataModule(pl.LightningDataModule):
             multiprocessing_context=self.multiprocessing_context,
             persistent_workers=True,
         )
+
+class EvalSubsetWrapper(torch.utils.data.Dataset):
+    """
+    A PyTorch Dataset wrapper that selects only samples with specific
+    initialization times.
+
+    Args:
+        dataset: The base dataset to wrap
+        eval_init_times: initialization times to include
+    """
+
+    def __init__(self, dataset, eval_init_times):
+        self.dataset = dataset
+        self.eval_init_times = eval_init_times
+
+        # TODO generalize class beyond 00/12 UTC
+        assert self.eval_init_times == [
+            0,
+            12,
+        ], "Only eval_init_times 00, 12 implemented"
+        valid_init_diff = 12
+
+        # Figure out which indices to use
+        first_batch = dataset[0]
+        first_init_time = self.get_utc_init_of_batch(first_batch)
+
+        # Note that we have to consider orig_time_step-state, as that is the
+        # time difference between init times in self.dataset
+        time_step_state_hour = self.dataset.orig_time_step_state.astype(
+            "timedelta64[h]"
+        ).astype(int)
+        assert (
+            valid_init_diff % time_step_state_hour == 0
+        ), "Invalid time step for eval_init_times"
+
+        # Find how many indices to skip in each step
+        self.valid_idx_interval = valid_init_diff // time_step_state_hour
+
+        # Find first valid index
+        first_valid_idx = None
+        for idx, step_offset in enumerate(range(0, 24, time_step_state_hour)):
+            # Init time in h UTC
+            potential_init_time = (first_init_time + step_offset) % 24
+            if potential_init_time in eval_init_times:
+                first_valid_idx = idx
+                break
+
+        assert first_valid_idx is not None, "Found no valid init time"
+        self.first_valid_idx = first_valid_idx
+
+    def get_utc_init_of_batch(self, batch):
+        """Get init time for batch in UTC, as int"""
+        target_times_np = batch[-1].numpy().astype("datetime64[ns]")
+        init_time = target_times_np[0] - self.dataset.orig_time_step_state
+        init_time_hour = init_time.astype("datetime64[h]").astype(int) % 24
+        return init_time_hour
+
+    def __len__(self) -> int:
+        """
+        Returns the length of the filtered dataset.
+        """
+        orig_len = len(self.dataset)
+        return np.ceil(
+            (orig_len - self.first_valid_idx) / self.valid_idx_interval
+        ).astype(int)
+
+    def __getitem__(self, idx: int):
+        """
+        Get an item from the filtered dataset.
+
+        Args:
+            idx: Index into the filtered dataset
+
+        Returns:
+            The dataset item corresponding to the filtered index
+        """
+        new_idx = self.first_valid_idx + idx * self.valid_idx_interval
+        batch = self.dataset[new_idx]
+
+        # Assert that we only do forecasts from 00 and 12 UTC
+        analysis_time_hour = self.get_utc_init_of_batch(batch)
+        assert analysis_time_hour in self.eval_init_times, (
+            "Tried to evaluate on sample with "
+            f"analysis time {analysis_time_hour}"
+        )
+
+        return batch
