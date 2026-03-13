@@ -86,6 +86,26 @@ class ARModel(pl.LightningModule):
         for key, val in state_stats.items():
             self.register_buffer(key, val, persistent=False)
 
+        # Load forcing stats for GPU standardization
+        forcing_window_size = (
+            num_past_forcing_steps + num_future_forcing_steps + 1
+        )
+        if num_forcing_vars > 0:
+            da_forcing_stats = datastore.get_standardization_dataarray(
+                category="forcing"
+            )
+            forcing_mean = torch.tensor(
+                da_forcing_stats.forcing_mean.values, dtype=torch.float32
+            ).repeat_interleave(forcing_window_size)
+            forcing_std = torch.tensor(
+                da_forcing_stats.forcing_std.values, dtype=torch.float32
+            ).repeat_interleave(forcing_window_size)
+        else:
+            forcing_mean = torch.empty(0, dtype=torch.float32)
+            forcing_std = torch.empty(0, dtype=torch.float32)
+        self.register_buffer("forcing_mean", forcing_mean, persistent=False)
+        self.register_buffer("forcing_std", forcing_std, persistent=False)
+
         state_feature_weights = get_state_feature_weighting(
             config=config, datastore=datastore
         )
@@ -172,6 +192,34 @@ class ARModel(pl.LightningModule):
             # How many of the last boundary forcing dims contain time-deltas
             self.boundary_time_delta_dims = (
                 num_past_boundary_steps + num_future_boundary_steps + 1
+            )
+
+            # Load boundary forcing stats for GPU standardization
+            boundary_window_size = (
+                num_past_boundary_steps + num_future_boundary_steps + 1
+            )
+            if num_boundary_forcing_vars > 0:
+                da_boundary_stats = (
+                    datastore_boundary.get_standardization_dataarray(
+                        category="forcing"
+                    )
+                )
+                boundary_mean = torch.tensor(
+                    da_boundary_stats.forcing_mean.values,
+                    dtype=torch.float32,
+                ).repeat_interleave(boundary_window_size)
+                boundary_std = torch.tensor(
+                    da_boundary_stats.forcing_std.values,
+                    dtype=torch.float32,
+                ).repeat_interleave(boundary_window_size)
+            else:
+                boundary_mean = torch.empty(0, dtype=torch.float32)
+                boundary_std = torch.empty(0, dtype=torch.float32)
+            self.register_buffer(
+                "boundary_mean", boundary_mean, persistent=False
+            )
+            self.register_buffer(
+                "boundary_std", boundary_std, persistent=False
             )
 
             self.num_total_grid_nodes += self.num_boundary_nodes
@@ -360,6 +408,48 @@ class ARModel(pl.LightningModule):
 
         return prediction, pred_std
 
+    def _standardize_batch(self, batch):
+        """
+        Standardize all tensors in a batch on-device (GPU).
+        Returns a new tuple with standardized tensors.
+        """
+        (
+            init_states,
+            target_states,
+            forcing,
+            boundary_forcing,
+            batch_times,
+        ) = batch
+
+        # Standardize state variables
+        init_states = (init_states - self.state_mean) / self.state_std
+        target_states = (target_states - self.state_mean) / self.state_std
+
+        # Standardize forcing (if non-empty)
+        if forcing.shape[-1] > 0:
+            forcing = (forcing - self.forcing_mean) / self.forcing_std
+
+        # Standardize boundary forcing (only feature part, not time deltas)
+        if self.boundary_forced and boundary_forcing.shape[-1] > 0:
+            n_bf = self.boundary_mean.shape[0]
+            if n_bf > 0:
+                boundary_forcing = torch.cat(
+                    [
+                        (boundary_forcing[..., :n_bf] - self.boundary_mean)
+                        / self.boundary_std,
+                        boundary_forcing[..., n_bf:],
+                    ],
+                    dim=-1,
+                )
+
+        return (
+            init_states,
+            target_states,
+            forcing,
+            boundary_forcing,
+            batch_times,
+        )
+
     def common_step(self, batch):
         """
         Predict on single batch
@@ -371,6 +461,8 @@ class ARModel(pl.LightningModule):
             (B, pred_steps, num_boundary_nodes, d_boundary_forcing),
             where index 0 corresponds to index 1 of init_states
         """
+        # Standardize on-device (GPU) instead of in the dataset on CPU
+        batch = self._standardize_batch(batch)
         (
             init_states,
             target_states,
@@ -671,10 +763,13 @@ class ARModel(pl.LightningModule):
                 batch,
                 n_additional_examples,
                 prediction=prediction,
+                target=target,
                 split="test",
             )
 
-    def plot_examples(self, batch, n_examples, split, prediction=None):
+    def plot_examples(
+        self, batch, n_examples, split, prediction=None, target=None
+    ):
         """
         Plot the first n_examples forecasts from batch
 
@@ -682,11 +777,12 @@ class ARModel(pl.LightningModule):
         n_examples: number of forecasts to plot
         prediction: (B, pred_steps, num_interior_nodes, d_f),
             existing prediction. Generate if None.
+        target: (B, pred_steps, num_interior_nodes, d_f),
+            standardized target. If None, computed via common_step.
         """
-        if prediction is None:
+        if prediction is None or target is None:
             prediction, target, _, _ = self.common_step(batch)
 
-        target = batch[1]
         time = batch[-1]
 
         # Rescale to original data scale
