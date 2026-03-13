@@ -861,7 +861,6 @@ class ARModel(pl.LightningModule):
                     )
 
                     log_dict[key] = plot
-                    plt.close(plot)
 
         # Check if metrics are watched, log exact values for specific vars
         # only for non-test vars
