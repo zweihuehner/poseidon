@@ -829,44 +829,49 @@ class ARModel(pl.LightningModule):
             metric_fig.savefig(
                 os.path.join(wandb.run.dir, f"{full_log_name}.pdf")
             )
+            plt.close(metric_fig)
 
         # create error lines
+        # only for test metrics
         if full_log_name in self.args.metrics_watch:    
             for var_name in self.args.variable_watch:
-                
-                var_i = var_names.index(var_name)
-                var_unit = var_units[var_i]
-                lead_time_str = "Lead Time"
-                metric_str = f"{metric_name.upper()} ({var_unit})"
-                key = f"{full_log_name}-{var_name}"
+                if prefix == "test":
+                    var_i = var_names.index(var_name)
+                    var_unit = var_units[var_i]
+                    lead_time_str = "Lead Time"
+                    metric_str = f"{metric_name.upper()} ({var_unit})"
+                    key = f"{full_log_name}-{var_name}"
 
-                # Get all lead times for this variable
-                lead_times = list(range(1, metric_tensor.shape[0] + 1))
-                metric_variable = metric_tensor.cpu().numpy()[:,var_i]
+                    # Get all lead times for this variable
+                    lead_times = list(range(1, metric_tensor.shape[0] + 1))
+                    metric_variable = metric_tensor.cpu().numpy()[:,var_i]
 
-                data = [[x, float(y)] for x, y in zip(lead_times, metric_variable)]
+                    data = [[x, float(y)] for x, y in zip(lead_times, metric_variable)]
 
-                table = wandb.Table(
-                    data=data,
-                    columns=[lead_time_str, metric_str],
-                )
+                    table = wandb.Table(
+                        data=data,
+                        columns=[lead_time_str, metric_str],
+                    )
 
-                plot = wandb.plot.line(
-                    table,
-                    lead_time_str,
-                    metric_str,
-                    title=key,
-                )
+                    plot = wandb.plot.line(
+                        table,
+                        lead_time_str,
+                        metric_str,
+                        title=key,
+                    )
 
-                log_dict[key] = plot
+                    log_dict[key] = plot
+                    plt.close(plot)
 
         # Check if metrics are watched, log exact values for specific vars
+        # only for non-test vars
         if full_log_name in self.args.metrics_watch:
-            for var_i, timesteps in self.args.var_leads_metrics_watch.items():
-                var_name = var_names[var_i]
-                for step in timesteps:
-                    key = f"{full_log_name}_{var_name}_step_{step}"
-                    log_dict[key] = metric_tensor[step - 1, var_i]
+            if prefix != "test":
+                for var_i, timesteps in self.args.var_leads_metrics_watch.items():
+                    var_name = var_names[var_i]
+                    for step in timesteps:
+                        key = f"{full_log_name}_{var_name}_step_{step}"
+                        log_dict[key] = metric_tensor[step - 1, var_i]
 
         return log_dict
 
