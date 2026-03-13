@@ -76,10 +76,11 @@ class MIKEDatastore(BaseDatastore):
             "preload_to_memory", preload_to_memory
         )
 
-        # output path
+        # set root path from where to read training dataset
+        root_path = getattr(self._config.output, "root_path", None)
         self._root_path = (
-            Path(self._config.output.root_path)
-            if self._config.output.root_path
+            Path(root_path)
+            if root_path
             else self._config_path.parent
         )
 
