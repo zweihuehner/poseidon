@@ -664,55 +664,109 @@ class WeatherDataset(torch.utils.data.Dataset):
 
                 da_list.append(da_sliced)
 
+            da_forcing_matched = xr.concat(da_list, dim="time")
+
         else:
-            for idx_time in range(init_steps, len(state_times)):
-                state_time = state_times[idx_time].values
+            # Vectorized analysis-data path: avoids the expensive per-step
+            # loop of xarray rename/assign_coords/expand_dims + xr.concat
+            # by computing all window indices at once and using numpy fancy
+            # indexing.
+            target_state_times = state_times[init_steps:].values
+            n_target_steps = len(target_state_times)
+            window_size = num_past_steps + num_future_steps + 1
 
-                # Select the closest time in the past from forcing data using
-                # sel with method="pad"
-                forcing_time_idx = da_forcing.time.get_index(
-                    "time"
-                ).get_indexer([state_time], method="pad")[0]
+            # Find all matching forcing time indices at once (vectorized)
+            forcing_time_indices = da_forcing.time.get_index(
+                "time"
+            ).get_indexer(target_state_times, method="pad")
 
-                window_start = (
-                    forcing_time_idx - num_past_steps * subsample_step
+            # Build 2D array of window indices: (n_steps, window_size)
+            window_offsets = np.arange(
+                -num_past_steps * subsample_step,
+                (num_future_steps + 1) * subsample_step,
+                subsample_step,
+            )
+            all_window_indices = (
+                forcing_time_indices[:, np.newaxis]
+                + window_offsets[np.newaxis, :]
+            )
+
+            # Compute time deltas for all windows at once
+            if self.dynamic_time_deltas:
+                window_comp_times = target_state_times
+            else:
+                window_comp_times = da_forcing.time.values[
+                    forcing_time_indices
+                ]
+            forcing_window_times = da_forcing.time.values[all_window_indices]
+            all_time_deltas = (
+                forcing_window_times - window_comp_times[:, np.newaxis]
+            )
+
+            # Extract forcing data via numpy fancy indexing.
+            # Only load the time range we actually need (important for
+            # lazy/dask-backed arrays).
+            min_t_idx = int(all_window_indices.min())
+            max_t_idx = int(all_window_indices.max())
+            forcing_subset = da_forcing.isel(
+                time=slice(min_t_idx, max_t_idx + 1)
+            )
+            # Transpose so time is the last axis for clean indexing
+            dims_without_time = [
+                d for d in forcing_subset.dims if d != "time"
+            ]
+            forcing_np = forcing_subset.transpose(
+                *dims_without_time, "time"
+            ).values
+            # forcing_np shape: (...non-time dims..., n_time_subset)
+
+            # Adjust indices to be relative to the loaded subset
+            adjusted_indices = all_window_indices - min_t_idx
+            # Fancy-index: (..., n_steps, window_size)
+            windowed_data = forcing_np[..., adjusted_indices]
+            # Move n_steps axis to front: (n_steps, ...non-time..., window)
+            # and ensure contiguous layout for efficient downstream ops
+            windowed_data = np.ascontiguousarray(
+                np.moveaxis(windowed_data, -2, 0)
+            )
+
+            # Build result DataArray with correct dims and coords.
+            # Only include lightweight coordinates needed for downstream
+            # operations (forcing_feature for standardization alignment,
+            # window for _process_windowed_data). Avoid carrying the heavy
+            # grid_index MultiIndex which slows xarray alignment.
+            window_coords = np.arange(
+                -num_past_steps, num_future_steps + 1
+            )
+            result_dims = (
+                ("time",) + tuple(dims_without_time) + ("window",)
+            )
+            coords = {
+                "time": target_state_times,
+                "window": window_coords,
+            }
+            # Include feature coordinates for standardization alignment,
+            # but skip spatial coords (grid_index) to avoid MultiIndex
+            # overhead in xarray operations.
+            for dim in dims_without_time:
+                if dim != "grid_index" and dim in da_forcing.coords:
+                    coords[dim] = da_forcing.coords[dim].values
+            # Only include window_time_deltas when needed (boundary data).
+            # It's only accessed by _process_windowed_data when
+            # add_time_deltas=True, which corresponds to is_boundary=True.
+            # Including it unconditionally causes expensive coordinate
+            # broadcasting during xarray's .stack() operation.
+            if is_boundary:
+                coords["window_time_deltas"] = (
+                    ("time", "window"),
+                    all_time_deltas,
                 )
-                window_end = (
-                    forcing_time_idx + (num_future_steps + 1) * subsample_step
-                )
 
-                da_window = da_forcing.isel(
-                    time=slice(window_start, window_end, subsample_step)
-                )
-
-                # Rename the time dimension to window for consistency
-                da_window = da_window.rename({"time": "window"})
-
-                # Assign the 'window' coordinate to be relative positions
-                da_window = da_window.assign_coords(
-                    window=np.arange(-num_past_steps, num_future_steps + 1)
-                )
-
-                # Calculate window time deltas for analysis data
-                if self.dynamic_time_deltas:
-                    # Deltas compared to interior state time
-                    window_comp_time = state_time
-                else:
-                    window_comp_time = da_forcing.time[forcing_time_idx].values
-
-                window_time_deltas = (
-                    da_forcing.time[
-                        window_start:window_end:subsample_step
-                    ].values
-                    - window_comp_time
-                )
-                da_window["window_time_deltas"] = ("window", window_time_deltas)
-
-                da_window = da_window.expand_dims(dim={"time": [state_time]})
-
-                da_list.append(da_window)
-
-        da_forcing_matched = xr.concat(da_list, dim="time")
+            da_forcing_matched = xr.DataArray(
+                data=windowed_data,
+                dims=result_dims,
+                coords=coords,
+            )
 
         return da_state_sliced, da_forcing_matched
 
@@ -1338,6 +1392,7 @@ class WeatherDataModule(pl.LightningDataModule):
             shuffle=True,
             multiprocessing_context=self.multiprocessing_context,
             persistent_workers=True,
+            pin_memory=True,
         )
 
     def val_dataloader(self):
@@ -1349,6 +1404,7 @@ class WeatherDataModule(pl.LightningDataModule):
             shuffle=False,
             multiprocessing_context=self.multiprocessing_context,
             persistent_workers=True,
+            pin_memory=True,
         )
 
     def test_dataloader(self):
@@ -1360,4 +1416,5 @@ class WeatherDataModule(pl.LightningDataModule):
             shuffle=False,
             multiprocessing_context=self.multiprocessing_context,
             persistent_workers=True,
+            pin_memory=True,
         )
