@@ -100,7 +100,7 @@ def plot_on_axis(
     Returns:
         matplotlib.collections.QuadMesh: QuadMesh object
     """
-    ax.coastlines(resolution="50m")
+    # ax.coastlines(resolution="50m")
     ax.add_feature(cfeature.BORDERS, linestyle="-", alpha=0.5)
 
     gl = ax.gridlines(
