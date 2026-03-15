@@ -28,7 +28,7 @@ dependencies = [
     "dask~=2025.3.0",
     "xarray~=2025.3.1",
     "mllam-data-prep @ git+https://github.com/zweihuehner/mllam-data-prep.git",
-    "weather-model-graphs @ git+https://github.com/joeloskarsson/weather-model-graphs.git@building-ml-lams"
+    "weather-model-graphs @ git+https://github.com/zweihuehner/weather-model-graphs.git@EGU2026"
 ]
 requires-python = ">=3.10"
 

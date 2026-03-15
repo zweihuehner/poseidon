@@ -3,6 +3,7 @@ import json
 import random
 import time
 from argparse import ArgumentParser
+from datetime import datetime
 
 # Third-party
 import pytorch_lightning as pl
@@ -249,6 +250,13 @@ def main(input_args=None):
         help="Wandb project name (default: neural_lam)",
     )
     parser.add_argument(
+        "--wandb_run_name",
+        type=str,
+        default=None,
+        help="Custom Wandb run name. If not provided, auto-generates a name. "
+        "Datetime will be appended to avoid conflicts (default: None)",
+    )
+    parser.add_argument(
         "--val_steps_to_log",
         nargs="+",
         type=int,
@@ -393,11 +401,19 @@ def main(input_args=None):
     else:
         run_mode = "train"
 
-    run_name = (
-        f"{run_mode}-"
-        f"{args.model}-{args.processor_layers}x{args.hidden_dim}-"
-        f"{time.strftime('%m_%d_%H')}-{random_run_id:04d}"
-    )
+    # Generate datetime suffix to avoid run name conflicts
+    datetime_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    if args.wandb_run_name:
+        # Use custom name with datetime suffix
+        run_name = f"{args.wandb_run_name}_{datetime_suffix}"
+    else:
+        # Use auto-generated name (keep current behavior with datetime instead of just time)
+        run_name = (
+            f"{run_mode}-"
+            f"{args.model}-{args.processor_layers}x{args.hidden_dim}-"
+            f"{datetime_suffix}-{random_run_id:04d}"
+        )
 
     checkpoint_root = "saved_models"
     if eval_only:
