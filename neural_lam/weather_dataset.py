@@ -672,8 +672,6 @@ class WeatherDataset(torch.utils.data.Dataset):
             # by computing all window indices at once and using numpy fancy
             # indexing.
             target_state_times = state_times[init_steps:].values
-            n_target_steps = len(target_state_times)
-            window_size = num_past_steps + num_future_steps + 1
 
             # Find all matching forcing time indices at once (vectorized)
             forcing_time_indices = da_forcing.time.get_index(
@@ -695,9 +693,7 @@ class WeatherDataset(torch.utils.data.Dataset):
             if self.dynamic_time_deltas:
                 window_comp_times = target_state_times
             else:
-                window_comp_times = da_forcing.time.values[
-                    forcing_time_indices
-                ]
+                window_comp_times = da_forcing.time.values[forcing_time_indices]
             forcing_window_times = da_forcing.time.values[all_window_indices]
             all_time_deltas = (
                 forcing_window_times - window_comp_times[:, np.newaxis]
@@ -712,9 +708,7 @@ class WeatherDataset(torch.utils.data.Dataset):
                 time=slice(min_t_idx, max_t_idx + 1)
             )
             # Transpose so time is the last axis for clean indexing
-            dims_without_time = [
-                d for d in forcing_subset.dims if d != "time"
-            ]
+            dims_without_time = [d for d in forcing_subset.dims if d != "time"]
             forcing_np = forcing_subset.transpose(
                 *dims_without_time, "time"
             ).values
@@ -735,12 +729,8 @@ class WeatherDataset(torch.utils.data.Dataset):
             # operations (forcing_feature for standardization alignment,
             # window for _process_windowed_data). Avoid carrying the heavy
             # grid_index MultiIndex which slows xarray alignment.
-            window_coords = np.arange(
-                -num_past_steps, num_future_steps + 1
-            )
-            result_dims = (
-                ("time",) + tuple(dims_without_time) + ("window",)
-            )
+            window_coords = np.arange(-num_past_steps, num_future_steps + 1)
+            result_dims = ("time",) + tuple(dims_without_time) + ("window",)
             coords = {
                 "time": target_state_times,
                 "window": window_coords,

@@ -10,15 +10,16 @@ from typing import List, Optional, Union
 # Third-party
 import cartopy.crs as ccrs
 import geopandas as gpd
+import mikeio
 import mllam_data_prep as mdp
 import numpy as np
 import xarray as xr
 from loguru import logger
 from shapely import Point
-import mikeio
 
 # Local
 from ..datastore.base import BaseDatastore
+
 
 class MIKEDatastore(BaseDatastore):
     """
@@ -79,9 +80,7 @@ class MIKEDatastore(BaseDatastore):
         # set root path from where to read training dataset
         root_path = getattr(self._config.output, "root_path", None)
         self._root_path = (
-            Path(root_path)
-            if root_path
-            else self._config_path.parent
+            Path(root_path) if root_path else self._config_path.parent
         )
 
         fp_ds = self._root_path / self._config_path.name.replace(
@@ -134,17 +133,25 @@ class MIKEDatastore(BaseDatastore):
 
         self.stats_datastore = None
 
-        # check for path for mike_dataset in datastore (only interior) which is needed for plotting
-        has_state = "state_fields" in self._config.inputs # currently only exists for interior datastore
+        # check for path for mike_dataset in datastore (only interior)
+        # which is needed for plotting
+        has_state = (
+            "state_fields" in self._config.inputs
+        )  # currently only exists for interior datastore
 
         mike_dataset_cfg = self._config.extra.get("mike_dataset")
         if has_state:
             if not mike_dataset_cfg:
-                raise ValueError("extra.mike_dataset must be set for interior (state) datastore.")
+                raise ValueError(
+                    "extra.mike_dataset must be set for "
+                    "interior (state) datastore."
+                )
             if not Path(mike_dataset_cfg).exists():
-                raise FileNotFoundError(f"Configured mike_dataset not found at {Path(mike_dataset_cfg)}")
+                raise FileNotFoundError(
+                    f"Configured mike_dataset "
+                    f"not found at {Path(mike_dataset_cfg)}"
+                )
             self.mike_dataset = mikeio.open(Path(mike_dataset_cfg))
-
 
     @property
     def root_path(self) -> Path:

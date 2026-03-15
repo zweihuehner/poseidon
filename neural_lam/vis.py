@@ -3,15 +3,16 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import matplotlib
 import matplotlib.pyplot as plt
+import mikeio
 import numpy as np
 import xarray as xr
 from scipy.spatial import cKDTree
-import mikeio
 
 # Local
 from . import utils
-from .datastore.base import BaseRegularGridDatastore, BaseDatastore
+from .datastore.base import BaseDatastore, BaseRegularGridDatastore
 from .datastore.mike import MIKEDatastore
+
 
 @matplotlib.rc_context(utils.fractional_plot_bundle(1))
 def plot_error_map(
@@ -76,6 +77,8 @@ def plot_error_map(
         ax.set_title(title, size=15)
 
     return fig
+
+
 def plot_on_axis(
     ax,
     da,
@@ -104,11 +107,11 @@ def plot_on_axis(
     ax.add_feature(cfeature.BORDERS, linestyle="-", alpha=0.5)
 
     gl = ax.gridlines(
-        draw_labels=True, 
-        dms=True, 
-        x_inline=False, 
+        draw_labels=True,
+        dms=True,
+        x_inline=False,
         y_inline=False,
-        linewidth=0.5
+        linewidth=0.5,
     )
     gl.top_labels = False
     gl.right_labels = False
@@ -139,15 +142,17 @@ def plot_on_axis(
         )
     elif isinstance(datastore, MIKEDatastore):
         im = plot_unstructured(
-            data = da,
-            datastore = datastore,
+            data=da,
+            datastore=datastore,
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,
             ax=ax,
         )
     else:
-        raise NotImplementedError(f"Plotting for {type(datastore)} datastore not implemented")
+        raise NotImplementedError(
+            f"Plotting for {type(datastore)} datastore not implemented"
+        )
 
     if ax_title:
         ax.set_title(ax_title, size=15)
@@ -183,7 +188,7 @@ def plot_prediction(
         vmax = max(da_prediction.max(), da_target.max())
     else:
         vmin, vmax = vrange
-    
+
     if vrange_error is None:
         vmin_error = min(da_prediction.min() - da_target.min())
         vmax_error = max(da_prediction.max() - da_target.max())
@@ -209,7 +214,7 @@ def plot_prediction(
     mappables = []
     for ax, da, subtitle, cmap, vmin_, vmax_ in zip(
         axes, data, titles, cmaps, vmins, vmaxs
-        ):
+    ):
         im = plot_on_axis(
             ax=ax,
             da=da,
@@ -226,13 +231,17 @@ def plot_prediction(
 
     # Add colorbars with ticks showing min, max, and 6 discretizations
     for i, (mappable, vmin_, vmax_) in enumerate(zip(mappables, vmins, vmaxs)):
-        cbar = fig.colorbar(mappable, orientation="horizontal", shrink=0.75, ax=axes[i])
+        cbar = fig.colorbar(
+            mappable, orientation="horizontal", shrink=0.75, ax=axes[i]
+        )
         ticks = np.linspace(vmin_, vmax_, 5)
         cbar.set_ticks(ticks)
         cbar.ax.set_xticklabels([f"{tick:.2g}" for tick in ticks])
         cbar.ax.tick_params(labelsize=10)
 
     return fig
+
+
 @matplotlib.rc_context(utils.fractional_plot_bundle(1))
 def plot_spatial_error(
     error,
@@ -290,15 +299,18 @@ def plot_spatial_error(
         # Unstructured: flatten values and let plot_on_axis scatter them
         da_to_plot = xr.DataArray(error.cpu().numpy().flatten())
 
-    # Use diverging colormap for symmetric ranges (e.g., bias), sequential otherwise
+    # Use diverging colormap for symmetric ranges (e.g., bias),
+    # sequential otherwise
     cmap = "RdBu_r" if symmetric else "OrRd"
-    
-    im = plot_on_axis(ax=ax, 
-                      da=da_to_plot, 
-                      datastore=datastore, 
-                      vmin=vmin, 
-                      vmax=vmax, 
-                      cmap=cmap)
+
+    im = plot_on_axis(
+        ax=ax,
+        da=da_to_plot,
+        datastore=datastore,
+        vmin=vmin,
+        vmax=vmax,
+        cmap=cmap,
+    )
 
     cbar = fig.colorbar(im, ax=ax, aspect=30)
     cbar.ax.tick_params(labelsize=10)
@@ -310,18 +322,19 @@ def plot_spatial_error(
 
     return fig
 
+
 def plot_unstructured(
-        data: xr.DataArray,
-        ax: matplotlib.axes.Axes,
-        datastore: MIKEDatastore,
-        vmin: float, 
-        vmax: float,
-        cmap: str,
-    ) -> matplotlib.collections.Collection:
+    data: xr.DataArray,
+    ax: matplotlib.axes.Axes,
+    datastore: MIKEDatastore,
+    vmin: float,
+    vmax: float,
+    cmap: str,
+) -> matplotlib.collections.Collection:
     """Plot an unstructured MIKE mesh field.
 
     Args:
-        data: Field values to plot, shaped like the datastore state (flattened OK).
+        data: Values to plot, shaped like the datastore state (flattened OK).
         ax: Matplotlib axis to draw on.
         datastore: Source datastore holding MIKE mesh metadata.
         vmin: Minimum value for color scaling.
@@ -329,25 +342,31 @@ def plot_unstructured(
         cmap: Colormap to use
 
     Returns:
-        matplotlib.collections.Collection: Mappable collection object for use with colorbar.
+        matplotlib.collections.Collection: Mappable collection object
+        for colorbar use.
     """
 
     ds_mike = datastore.mike_dataset
     data_vals = data.values.flatten()
 
     idx_mike = map_datastore_to_mike_indices(datastore, ds_mike)
-        
-    da_mike = create_plotting_mike_da(data = data_vals, 
-                                      ds_mike = ds_mike, 
-                                      idx_mike = idx_mike)
 
-    ax = da_mike.plot(add_colorbar=False, vmin=vmin, vmax=vmax, ax=ax, cmap=cmap)
+    da_mike = create_plotting_mike_da(
+        data=data_vals, ds_mike=ds_mike, idx_mike=idx_mike
+    )
+
+    ax = da_mike.plot(
+        add_colorbar=False, vmin=vmin, vmax=vmax, ax=ax, cmap=cmap
+    )
     ax.set_xlabel("")
     ax.set_ylabel("")
 
     return ax.collections[-1]
 
-def map_datastore_to_mike_indices(datastore: BaseDatastore, ds_mike: mikeio.Dataset) -> np.ndarray:
+
+def map_datastore_to_mike_indices(
+    datastore: BaseDatastore, ds_mike: mikeio.Dataset
+) -> np.ndarray:
     """Map datastore state node order to MIKE element indices.
 
     Args:
@@ -364,18 +383,19 @@ def map_datastore_to_mike_indices(datastore: BaseDatastore, ds_mike: mikeio.Data
 
     datastore_xy = datastore.get_xy(category="state", stacked=True)
     mike_xy = ds_mike.geometry.element_coordinates[:, :2]
-    
+
     tree = cKDTree(mike_xy)
     distances, idx_mike = tree.query(datastore_xy)
-    
+
     if (distances > 1e-6).any():
         print("Warning: Some datastore points don't match MIKE exactly")
-    
+
     return idx_mike
 
-def create_plotting_mike_da(data: xr.DataArray, 
-                            ds_mike: mikeio.Dataset, 
-                            idx_mike: np.ndarray) -> mikeio.DataArray:
+
+def create_plotting_mike_da(
+    data: xr.DataArray, ds_mike: mikeio.Dataset, idx_mike: np.ndarray
+) -> mikeio.DataArray:
     """Create a MIKE DataArray aligned to datastore ordering for plotting.
 
     Args:
@@ -392,7 +412,7 @@ def create_plotting_mike_da(data: xr.DataArray,
         data=data,
         time=None,
         geometry=subset_geometry,
-        item=mikeio.ItemInfo(name="")
+        item=mikeio.ItemInfo(name=""),
     )
 
     return da

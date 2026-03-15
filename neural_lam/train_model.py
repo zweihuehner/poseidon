@@ -1,7 +1,6 @@
 # Standard library
 import json
 import random
-import time
 from argparse import ArgumentParser
 from datetime import datetime
 
@@ -22,6 +21,7 @@ MODELS = {
     "hi_lam": HiLAM,
     "hi_lam_parallel": HiLAMParallel,
 }
+
 
 @logger.catch
 def main(input_args=None):
@@ -267,7 +267,8 @@ def main(input_args=None):
         "--metrics_watch",
         nargs="+",
         default=["test_rmse", "val_rmse"],
-        help="List of metrics for error watch, including any prefix (e.g. val_rmse)",
+        help="List of metrics for error watch, "
+        "including any prefix (e.g. val_rmse)",
     )
     parser.add_argument(
         "--variable_watch",
@@ -402,13 +403,14 @@ def main(input_args=None):
         run_mode = "train"
 
     # Generate datetime suffix to avoid run name conflicts
-    datetime_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
-    
+    datetime_suffix = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     if args.wandb_run_name:
         # Use custom name with datetime suffix
         run_name = f"{args.wandb_run_name}_{datetime_suffix}"
     else:
-        # Use auto-generated name (keep current behavior with datetime instead of just time)
+        # Use auto-generated name
+        # (keep current behavior with datetime instead of just time)
         run_name = (
             f"{run_mode}-"
             f"{args.model}-{args.processor_layers}x{args.hidden_dim}-"

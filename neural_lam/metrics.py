@@ -138,6 +138,7 @@ def wmae(pred, target, pred_std, mask=None, average_grid=True, sum_vars=True):
         sum_vars=sum_vars,
     )
 
+
 def mae(pred, target, pred_std, mask=None, average_grid=True, sum_vars=True):
     """
     (Unweighted) Mean Absolute Error
@@ -225,6 +226,7 @@ def crps_gauss(
         entry_crps, mask=mask, average_grid=average_grid, sum_vars=sum_vars
     )
 
+
 def wbias(pred, target, pred_std, mask=None, average_grid=True, sum_vars=True):
     """
     Weighted Bias (Mean Error)
@@ -249,6 +251,7 @@ def wbias(pred, target, pred_std, mask=None, average_grid=True, sum_vars=True):
         entry_bias, mask=mask, average_grid=average_grid, sum_vars=sum_vars
     )
 
+
 def bias(pred, target, pred_std, mask=None, average_grid=True, sum_vars=True):
     """
     Bias (Mean Error)
@@ -268,9 +271,14 @@ def bias(pred, target, pred_std, mask=None, average_grid=True, sum_vars=True):
     depending on reduction arguments.
     """
     # Replace pred_std with constant ones
-    return wbias(pred=pred, target=target, mask=mask, 
-                 pred_std=torch.ones_like(pred_std), 
-                 average_grid=average_grid, sum_vars=sum_vars)
+    return wbias(
+        pred=pred,
+        target=target,
+        mask=mask,
+        pred_std=torch.ones_like(pred_std),
+        average_grid=average_grid,
+        sum_vars=sum_vars,
+    )
 
 
 DEFINED_METRICS = {
